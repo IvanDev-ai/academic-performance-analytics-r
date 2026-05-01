@@ -1,0 +1,1465 @@
+---
+title: "Análisis Estadístico del Rendimiento Académico"
+author: "Ivan Lumbreras Martin"
+output: 
+  html_notebook:
+    theme: flatly
+    toc: true
+    toc_depth: 6
+    toc_float: true
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+# 1. Introducción
+
+## Objetivos del Análisis
+
+El propósito de este trabajo es evaluar y comparar el desempeño de
+distintos modelos de clasificación para predecir la categoría de
+rendimiento en el examen final (Exam_Score) de los estudiantes. Ademas
+se analizará las características que hacen que los alumnos mejoren o
+empeoren su rendimiento.
+
+------------------------------------------------------------------------
+
+### Fuentes y Relevancia de los Datos
+
+**Fuente**:
+<https://www.kaggle.com/datasets/lainguyn123/student-performance-factors>
+
+**Relevancia**:
+
+-   **Esfuerzo y hábito** (horas de estudio, asistencia) que reflejan
+    cuánto trabaja el alumno.
+
+-   **Entorno y recursos** (implicación de padres, acceso a internet)
+    que muestran el apoyo fuera del aula.
+
+-   **Hábitos personales** (sueño, ejercicio).
+
+-   **Características del colegio** (tipo de centro, calidad del
+    profesorado) que influyen en la capacidad de aprender.
+
+------------------------------------------------------------------------
+
+```{r setup0, include=FALSE, echo=FALSE, warning=FALSE, message=FALSE}
+library(readr)
+library(dplyr)
+library(knitr)
+```
+
+------------------------------------------------------------------------
+
+# 2. Exploración Inicial del Dataset
+
+## Código para Cargar y Visualizar el Dataset
+
+```{r carga_dataset, echo=TRUE, message=FALSE, warning=FALSE}
+# Cargar el dataset
+dataset <- read_csv("datos.csv")
+dim(dataset)
+# Visualizar las primeras filas en forma de tabla
+head(dataset, 5)
+```
+
+## Descripción Detallada del Dataset
+
+A continuación, se describe en detalle el contenido y relevancia de los
+datos:
+
+### Dimensiones y Variables
+
+**Número de Observaciones**: Aproximadamente 6600 registros, lo que
+permite un análisis robusto y representativo
+
+**Variables Predictoras**: Consta de 19 variables que se pueden
+clasificar en dos grupos:
+
+1.  **Variables numéricas**
+
+    -   Hours_Studied: Horas dedicadas al estudio por semana
+
+    -   Attendance: Porcentaje de asistencia a clases (0–100)
+
+    -   Sleep_Hours: Horas promedio de sueño por noche
+
+    -   Previous_Scores: Calificaciones obtenidas en exámenes previos
+
+    -   Tutoring_Sessions: Número de sesiones de tutoría al mes
+
+    -   Physical_Activity: Horas de actividad física por semana
+
+    **Variables categóricas**
+
+    -   Parental_Involvement (Low, Medium, High)
+
+    -   Access_to_Resources (Low, Medium, High)
+
+    -   Extracurricular_Activities (Yes, No)
+
+    -   Motivation_Level (Low, Medium, High)
+
+    -   Internet_Access (Yes, No)
+
+    -   Family_Income (Low, Medium, High)
+
+    -   Teacher_Quality (Low, Medium, High)
+
+    -   School_Type (Public, Private)
+
+    -   Peer_Influence (Positive, Neutral, Negative)
+
+    -   Learning_Disabilities (Yes, No)
+
+    -   Parental_Education_Level (High School, College, Postgraduate)
+
+    -   Distance_from_Home (Near, Moderate, Far)
+
+    -   Gender (Male, Female)
+
+**Variable Objetivo**: Exam_Score - Puntuación obtenida en el examen
+final (numérica, 0–100), se transformará en terciles para crear la
+variable de respuesta categorica con etiquetas “Bajo”, “Medio” y “Alto”.
+
+```{r Datos_F_librerias, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse)
+library(knitr)
+library(modeest) 
+```
+
+# 3. Datos Faltantes e Imputación
+
+El siguiente codigo tiene como objetivo detectar los valores faltantes
+(N/As). Esto es algo necesario para que mas adelante los modelos
+seleccionados puedan analizar el dataset correctamente y poder predecir
+con exactitud.
+
+## 3.1 Identificación de Valores Faltantes
+
+```{r datos_faltantes, message=FALSE, warning=FALSE}
+# Contar valores faltantes por variable
+datos_faltantes <- dataset %>% 
+  summarise(across(everything(), ~sum(is.na(.)))) %>% 
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "NAs")
+
+# Visualización en tabla
+kable(datos_faltantes, caption = "Valores faltantes por variable", format = "html")
+```
+
+### Conclusión:
+
+Se puede ver que faltan datos en las variables de Teacher_Quality,
+Parental_Education_Level y Distance_from_Home, son variables todas
+categóricas, por lo que en el siguiente paso se decidirá el método de
+imputación correcto.
+
+------------------------------------------------------------------------
+
+## 3.2 Método de Imputación - Moda
+
+Dado que las variables con datos faltantes son categóricas, he decidido
+usar la Moda para rellenar los valores faltantes con el valor mas
+frecuente. De esta manera mantengo la distribución original sin alterar
+el análisis.
+
+### Imputación para Variables Categóricas: Moda
+
+```{r imputacion-categorica, message=FALSE, warning=FALSE}
+# Función para obtener la moda
+tmoda <- function(x) {
+  uniq_x <- unique(na.omit(x))
+  uniq_x[which.max(tabulate(match(x, uniq_x)))]
+}
+
+# Imputar valores faltantes con la moda
+dataset <- dataset %>% 
+  mutate(across(where(is.character), ~replace_na(., as.character(tmoda(.)))))
+```
+
+#### Explicación Matemática:
+
+La moda es el valor $m$ que ocurre con mayor frecuencia en una variable
+categórica, es decir, $$
+m = \arg\max_{v \in V} f(v)
+$$ donde $V$ es el conjunto de valores únicos y $f(v)$ es su frecuencia.
+
+Reemplazar los faltantes por $m$ garantiza que se mantenga la categoría
+dominante en la distribución.
+
+------------------------------------------------------------------------
+
+## 3.3 Impacto de la Imputación en el Análisis
+
+Para verificar que no quedan valores faltantes y verificar que la
+imputación esta correctamente aplicada volvemos a repetir el código
+anterior (3.1).
+
+```{r imputacion2, message=FALSE, warning=FALSE}
+# Verificar valores faltantes
+dataset2 <- dataset %>% 
+  summarise(across(everything(), ~sum(is.na(.)))) %>% 
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "NAs")
+
+# Visualización en tabla
+kable(dataset2, caption = "Valores faltantes después de la imputación", format = "html")
+```
+
+#### Conclusión:
+
+-   La imputación ha eliminado los valores faltantes en todas las
+    variables.
+-   Al utilizar la moda, se mantiene la distribución original de cada
+    variable, ya que se reemplazan los valores vacíos por la categoría
+    más frecuente.
+-   De esta manera sin tener que eliminar registros, mantengo el tamaño
+    de la muestra y la fiabilidad del análisis.
+
+------------------------------------------------------------------------
+
+```{r librerias_4, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+```
+
+# 4. Distribución de Variables
+
+El análisis de la distribución de variables es fundamental para
+comprender la naturaleza de los datos. Permite identificar patrones que
+pueden influir en los modelos posteriores. Además de comprobar que
+variables predictoras pueden llegar a influir más en la variable
+objetivo.
+
+## 4.1 Análisis de Variables Numéricas
+
+### Histogramas y Diagramas de Densidad
+
+Los histogramas permiten visualizar la frecuencia de los valores en una
+variable, mientras que los diagramas de densidad suavizan la
+distribución para una mejor interpretación.
+
+```{r diagramas_densidad}
+# Obtener nombres de variables numéricas
+num_vars <- dataset %>% select(where(is.numeric)) %>% names()
+n_vars   <- length(num_vars)
+
+# Definir layout con 3 columnas
+ncol <- 3
+nrow <- ceiling(n_vars / ncol)
+
+# Ajustar la cuadrícula de plots
+par(mfrow = c(nrow, ncol), mar = c(3, 3, 2, 1))
+
+for (var in num_vars) {
+  x <- dataset[[var]]
+  
+  # Calcular histograma sin dibujar
+  h <- hist(x,
+            breaks = 30,
+            plot   = FALSE)
+  
+  # Dibujar histograma en densidad
+  plot(h,
+       freq  = FALSE,
+       col   = "#1E90FF",
+       border= "white",
+       main  = paste(var),
+       xlab  = var,
+       ylab  = "Densidad")
+  
+  # Sobreponer la curva de densidad
+  d <- density(x, na.rm = TRUE)
+  lines(d, lwd = 2, col = "#FF4500")
+}
+
+# Restaurar parámetros gráficos por defecto
+par(mfrow = c(1, 1), mar = c(5, 4, 4, 2) + 0.1)
+```
+
+### Explicación de gráficos
+
+Cada variable se ve que en el eje x se muestra la cantidad de cada
+variable por ejemplo en Hours_Studied, se muestran las horas estudiadas.
+Y en el eje Y la cantidad de alumnos siguiendo el anterior ejemplo
+serian los alumnos que han estudiado dichas horas.
+
+**Análisis de variables:**
+
+Las variables Hours_Studied y Exam_Score son continuas y siguen una
+forma de campana (normalidad), es decir, hay pocos alumnos que estudien
+muchas o pocas horas y la gran mayoria estudian una media de 20h. Y la
+variable objetivo se ve como la mayoria de alumnos tiene una nota media
+entre el 60-70. **Con lo cual podemos ver que hay indicadores de
+actividades o resultados más homogéneos entre los estudiantes.**
+
+Y hay otras variables discretas como Sleep_Hours, Tutoring_Sessions y
+Physical_Activity ya que contienen conteos enteros y saltos entre las
+barras azules. Estas muestran picos en valores como 7 h de sueño o 0–2
+tutorías, ademas de tener unas 3 actividades fisicas de promedio. Más
+tarde, se compararan estas variables para ver como influyen con la
+variable objetivo.
+
+**Interpretación:**
+
+-   Existe una correlación aparente entre las "Hours_Studied" y la
+    "Exam_Score". Al mostrar ambas variables una distribución
+    relativamente normal, sugiriendo que hay un rango más común de horas
+    de estudio que lleva tambien a un rango similar de puntuaciones en
+    el examen. **Por ejemplo:** Si un alumno a estudiado 20h (la mas
+    comun) sacara 65 (la mas comun tambien).
+
+-   Los hábitos personales como sueño, actividad física, y el uso de
+    tutorías muestran mayor diferencia que las horas de estudio o la
+    asistencia. Sugiriendo así, que para diferenciar entre estudiantes
+    de alto y bajo rendimiento, no basta con analizar el estudio o la
+    asistencia promedio, también es importante explorar cómo estos
+    hábitos personales y el uso de recursos adicionales podrían influir
+    en unos rendimientos muy superiores.
+
+Concluyendo que los datos sugieren que la mayoría de los estudiantes se
+encuentran en un punto medio en cuanto a esfuerzo académico tradicional
+se refiere. Y que las variaciones en los resultados podrían estar más
+influenciadas por hábitos personales y el aprovechamiento de tutorias
+que generalmente no son adoptadas por los alumnos.
+
+## 4.2 Análisis de Variables Categóricas
+
+### Gráficos de Barras
+
+Estos gráficos permiten visualizar la frecuencia de las categorías en
+las variables cualitativas.
+
+```{r barras_categoricas, message=FALSE, warning=FALSE}
+library(RColorBrewer)
+
+# variables categóricas
+cat_vars <- dataset %>% select(where(is.character)) %>% names()
+n <- length(cat_vars)
+half <- ceiling(n / 2)
+
+# página 1: primeras variables
+par(mfrow = c(ceiling(half/3), 3), mar = c(4,4,2,1))
+for (var in cat_vars[1:half]) {
+  bp <- table(dataset[[var]])
+  barplot(bp,
+          main = paste("Distribución de", var),
+          ylab = "Frecuencia",
+          col = brewer.pal(n = length(bp), name = "Set3"),
+          las = 2, cex.names = 0.8)
+}
+
+# página 2: resto de variables
+par(mfrow = c(ceiling((n-half)/3), 3), mar = c(4,4,2,1))
+for (var in cat_vars[(half+1):n]) {
+  bp <- table(dataset[[var]])
+  barplot(bp,
+          main = paste("Distribución de", var),
+          ylab = "Frecuencia",
+          col = brewer.pal(n = length(bp), name = "Set3"),
+          las = 2, cex.names = 0.8)
+}
+
+# restaurar a un solo gráfico
+par(mfrow = c(1,1))
+```
+
+Se pueden observar que hay sesgos en estas variables. Pero estos sesgos
+simplemente reflejan una distribución de las categorías en la población,
+siendo una característica descriptiva de los datos. Los modelos a
+realizar no exigen que las variables predictoras categóricas, es decir,
+las que muestran arriba, tengan distribuciones simétricas, ya que suelen
+convertirse en variables indicadoras (0/1). De este modo, una categoría
+minoritaria o mayoritaria es igualmente útil para la predicción.
+
+**\
+Sesgos encontrados:**
+
+-   **Internet_Access**, donde hay una diferencia significativa entre el
+    total de estudiantes que tienen y no tienen acceso a internet.
+
+-   **Family_Income**, muestra que la gran mayoria tiene unos ingresos
+    medios pero tambien preocupa la gran cantidad de alumnos que
+    disponen de unos ingresos bajos.
+
+-   **Teacher_Quality**, donde muestra que apenas hay profesores de mala
+    calidad.
+
+-   **Learning_Disabilities**, se muestra que la gran mayoria de alumnos
+    no tienen ninguna discapacidad a la hora de aprender.
+
+-   **Distance_from_Home**, se muestra que la gran mayoria de alumnos
+    viven cerca de sus lugares de estudio, sin embargo, hay pocos que
+    viven lejos.
+
+    ------------------------------------------------------------------------
+
+## 4.3 Diagramas de Dispersión
+
+A continuación, se muestran las 2 variables mas influyentes (en el
+apartado de los modelos se muestra como lo son) con la variable
+objetivo.
+
+```{r echo=TRUE}
+ggplot(dataset, aes(x = Hours_Studied, y = Exam_Score)) +
+  geom_point(color = "#32CD32", alpha = 0.7) +
+  labs(title = "Hours_Studied vs Exam_Score", x = "Hours_Studied", y = "Exam_Score") +
+  theme_minimal()
+```
+
+#### Conclusión
+
+-   **Relación positiva fuerte (donde hay muchos puntos verdes
+    juntos)**, muestra que tienen una relación bastante fuerte entre un
+    promedio de 60-70 % en el exámen donde este sube levemente contra
+    más horas estudies. Es decir, los puntos van subiendo poco a poco
+    desde 0 horas estudiadas hasta las mas de las 40 horas estudiadas.
+-   **Relación débil (dispersión alta de puntos)**, esto se observa en
+    las notas más altas entre 80-100 y 15h-30h estudiadas, es normal que
+    haya menos alumnos cuanto mayor sea la nota debido a que contra mas
+    nota quieras más exigencia existe.
+-   **Valores atipicos (muy pocos puntos verdes sueltos)**, destacan
+    algunos puntos que tiene pocas horas estudiadas menos de 10h y notas
+    muy altas mas de 80%, lo cual no es lo normal.
+
+```{r}
+ggplot(dataset, aes(x = Attendance, y = Exam_Score)) +
+  geom_point(color = "#32CD32", alpha = 0.7) +
+  labs(title = "Attendance vs Exam_Score", x = "Attendance", y = "Exam_Score") +
+  theme_minimal()
+```
+
+#### Conclusión
+
+-   **Relación positiva fuerte (donde hay muchos puntos verdes
+    juntos)**, muestra que tienen una relación bastante fuerte entre un
+    promedio de 60-75 % en el exámen donde este sube levemente contra
+    más asistencia tengas. Es decir, los puntos van subiendo poco a poco
+    desde 60% de asistencia hasta el 100%..
+-   **Relación débil (dispersión alta de puntos)**, esto se observa en
+    las notas más altas entre 80-100 y 80-100% de asistencia, es normal
+    que haya menos alumnos cuanto mayor sea la nota debido a que contra
+    mas nota quieras más exigencia existe.
+-   **Valores atipicos (muy pocos puntos verdes sueltos)**, destacan
+    algunos puntos que tienen poca asistencia (60-70%) y notas muy altas
+    mas de 80%, lo cual no es lo normal.
+
+## 4.4 Matriz de Correlaciones
+
+```{r multicolinealidad-matriz, message=FALSE}
+if (!requireNamespace("corrplot", quietly = TRUE)) install.packages("corrplot")
+library(corrplot)
+# Seleccionar solo variables numéricas
+num_vars_all <- dataset %>% 
+  select(where(is.numeric))
+
+# Calcular matriz de correlaciones y redondear a 2 decimales
+corr_mat_all <- round(cor(num_vars_all, use = "pairwise.complete.obs"), 2)
+
+# Corrplot
+corrplot(
+  corr_mat_all,
+  method      = "color",      
+  type        = "full",       
+  order       = "hclust",      
+  tl.col      = "black",       
+  tl.srt      = 45,           
+  addCoef.col = "black",       
+  number.cex  = 0.7,           
+  diag        = TRUE,         
+  col         = colorRampPalette(c("#6D9EC1", "white", "#E46726"))(200)
+)
+```
+
+### Conclusiones
+
+-   **Interpretación General**:
+    -   La mayoría de las variables tienen correlaciones bajas entre sí,
+        lo que sugiere que no hay demasiada multicolinealidad.
+    -   Las variables `Hours_Studied` y `Exam_Score` tienen una
+        correlación positiva alta, lo que indica que los estudiantes que
+        estudian más tienden a tener mejores calificaciones previas.
+    -   Las variables `Attendance` y `Exam_Score` también muestran una
+        correlación positiva moderada, sugiriendo que una mayor
+        asistencia se asocia con mejores notas en el examen.
+
+------------------------------------------------------------------------
+
+# 5. Modelos
+
+## 5.1 Ajustes en el Dataset.
+
+### 5.1.1 Ajustar Datos categoricos a factores
+
+Pasar variables categoricas a factores para poder aplicar al modelo.
+
+```{r}
+# Convertir variables categóricas a factores
+dataset$Gender <- as.factor(dataset$Gender)
+dataset$Parental_Involvement <- as.factor(dataset$Parental_Involvement)
+dataset$Family_Income <- as.factor(dataset$Family_Income)
+dataset$Teacher_Quality <- as.factor(dataset$Teacher_Quality)
+dataset$Learning_Disabilities <- as.factor(dataset$Learning_Disabilities)
+dataset$Distance_from_Home <- as.factor(dataset$Distance_from_Home)
+dataset$Internet_Access <- as.factor(dataset$Internet_Access)
+dataset$Parental_Education_Level <- as.factor(dataset$Parental_Education_Level)
+```
+
+**¿Por qué convertir estas columnas a factores?** Porque al tratarlas
+como variables categóricas (factores), R las reconocerán correctamente y
+podrán crear automáticamente las dummies o contrastes necesarios para
+los modelos.
+
+**Conclusión**
+
+Todas las columnas de características cualitativas han sido
+transformadas a factores y están listas para el preprocesado y el
+entrenamiento de los modelos.
+
+### 5.1.2 Ajustar la variable objetivo a categorica
+
+Esto sirve para convertir la variable objetivo Exam_Score en una
+variable.
+
+```{r}
+lbls     <- c("Bajo","Medio","Alto")
+ds       <- dataset %>%
+  mutate(Exam_cat = factor(lbls[ntile(Exam_Score,3)], ordered = TRUE))
+# Mostrar Exam_cat en barplots
+barplot(table(ds$Exam_cat), 
+        main = "Distribución de Exam_cat",
+        xlab = "Categoría de Examen",
+        ylab = "Frecuencia",
+        col = c("#FF6347", "#FFD700", "#32CD32"))
+
+```
+
+**¿Por qué convertir `Exam_Score` en una categoría perfectamente
+balanceada?** Al agrupar las notas continuas en tres grupos iguales
+(“Bajo”, “Medio”, “Alto”) con `ntile()`, logramos tres clases con
+exactamente el mismo número de alumnos. Esto ayuda porque evita que el
+modelo favorezca la categoría más común y olvide las menos comunes.
+También simplifica el problema: en lugar de perseguir diferencias de un
+punto (¿71 o 72?), nos centramos en saltos de rendimiento reales (“pasar
+de bajo a medio”), que es lo que realmente quiero entender,es decir, que
+medidas son necesarias para mejorar el rendimiento academico de los
+alumnos de una manera mas personalizada.
+
+**Conclusión**
+
+Con esta transformación hacemos que el algoritmo vea un problema de
+clasificación limpio y equilibrado. Podemos usar modelos ligeros como
+LDA o un MLP pequeño que entrenan en segundos, en lugar de técnicas de
+regresión complejas. Además, la salida —categorías de rendimiento— es
+mucho más fácil de interpretar y de traducir en acciones concretas para
+apoyar a los estudiantes.
+
+### 5.1.3 Preprocesado de los datos
+
+```{r LDA_librerias, warning=FALSE}
+library(rsample)
+library(recipes)
+library(dplyr)
+#  Partición 80/20 estratificada
+spl   <- initial_split(ds, prop = 0.8, strata = Exam_cat)
+train <- training(spl)
+test  <- testing(spl)
+
+# Preprocesado: quitamos Exam_Score, dummies y normalizamos
+rec <- recipe(Exam_cat ~ ., data = train) %>%
+  step_rm(Exam_Score) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_center(all_numeric_predictors()) %>%
+  step_scale(all_numeric_predictors()) %>%
+  prep()
+
+train_pp <- bake(rec, train)
+test_pp  <- bake(rec, test)
+```
+
+**¿Por qué dividir así y preparar los datos de esta forma?** Al separar
+el 80 % para entrenamiento y 20 % para prueba usando estratificación por
+`Exam_cat`, nos aseguramos de que los tres niveles (“Bajo”, “Medio”,
+“Alto”) estén representados de la misma manera en ambos conjuntos. Así
+evitamos que el modelo aprenda demasiado de una categoría y luego falle
+al encontrarse con otra menos frecuente.
+
+En el preprocesado eliminamos la columna original de `Exam_Score` (para
+que no filtre la respuesta) y convertimos todas las variables
+cualitativas en dummies; esto le dice al algoritmo cómo manejar cada
+nivel sin imponer un orden numérico. Después centramos (media = 0) y
+escalamos (desviación = 1) las variables numéricas para que todas
+contribuyan por igual: de otro modo, características con rangos grandes
+arrastrarían las fronteras de decisión, y podríamos obtener resultados
+sesgados o inestables.
+
+De esta manera, están diseñadas para que los modelos —especialmente LDA
+multiclase— funcionen de manera justa y precisa.
+
+## 5.2 LDA
+
+### 5.2.1 Comprobación de supuestos.
+
+#### **Normalidad multivariante**
+
+```{r normalidad_multivariante, message=FALSE, warning=FALSE}
+# Kolmogorov–Smirnov univariante por clase
+num_vars <- names(ds)[sapply(ds, is.numeric) & names(ds) != "Exam_Score"]
+
+for (cl in levels(ds$Exam_cat)) {
+  cat("\nClase", cl, ":\n")
+  for (v in num_vars) {
+    x <- ds[[v]][ ds$Exam_cat == cl ]
+    if (length(x) >= 3) {
+      ks <- ks.test(x, "pnorm", mean(x), sd(x))
+      cat(sprintf("  %s: D = %.3f, p = %.4f\n",
+                  v, as.numeric(ks$statistic), ks$p.value))
+    } else {
+      cat(sprintf("  %s: n < 3, test no aplicable\n", v))
+    }
+  }
+}
+```
+
+**¿Por qué comprobar la Normalidad multivariante?**
+
+Porque el LDA parte de la suposición de que, dentro de cada clase, los
+predictores siguen una distribución normal multivariante. Esto garantiza
+que los estimadores de media y covarianza sean óptimos y que las
+fronteras de decisión lineales sean estadísticamente válidas. Si la
+normalidad falla, el modelo puede sobrestimar o subestimar la
+probabilidad de pertenencia a cada clase, reduciendo su capacidad
+discriminativa.
+
+**Descripción de los resultados**
+
+Al aplicar el test de Kolmogorov–Smirnov a cada variable numérica dentro
+de las clases “Bajo”, “Medio” y “Alto”, encontramos que todos los
+p-values son muy pequeños (p \< 0.001 en casi todos los casos).
+
+Los valores de D (distancia máxima entre la distribución y la normal
+teórica) oscilan entre 0.041 y 0.236, mostrando diferencias en varias
+variables.
+
+**Interpretación**
+
+Un p-value tan bajo indica que la hipótesis nula de normalidad se
+rechaza para cada predictor en todas las clases.
+
+Variables como Tutoring_Sessions y Physical_Activity presentan las
+mayores D (D ≈ 0.19–0.24), lo que refleja su naturaleza discreta y picos
+muy marcados.
+
+Incluso métricas más suaves como Hours_Studied muestran rechazo (D ≈
+0.04–0.05), indicando que el ajuste no es perfecto ni siquiera allí.
+
+**Conclusión**
+
+Dado que ninguna de las variables continúa cumple la normalidad en cada
+grupo, el supuesto de distribución normal multivariante para LDA no se
+cumple en este dataset. A pesar de ello, y como se verá mas adelante el
+modelo LDA muestra buen rendimiento.
+
+#### **Homocedasticidad (igualdad de covarianzas)**
+
+```{r homocedasticidad, message=FALSE, warning=FALSE}
+library(biotools)
+# Homocedasticidad: igualdad de matrices de covarianza (Box’s M)
+num_vars <- names(ds)[sapply(ds, is.numeric) & names(ds) != "Exam_Score"]
+
+# Test de Box’s M
+bm <- biotools::boxM(ds[num_vars], ds$Exam_cat)
+print(bm)
+```
+
+**¿Por qué comprobar la Homocedasticidad (igualdad de covarianzas)?**
+
+Porque LDA multiclase asume que todos los grupos son de la misma manera
+y utiliza una sola estimación de cómo varían sus datos para trazar
+líneas de separación. Si cada categoría tiene su propia forma de
+dispersión, esa única estimación se vuelve imprecisa y las fronteras que
+dibuja el modelo dejan de encajar bien, por lo que acaba clasificando
+peor.
+
+**Descripción de los resultados**
+
+El test de Box’s M aplicado a las seis variables numéricas arrojó un
+estadístico χ² aproximado de 426.14 con 42 grados de libertad,
+acompañado de un p-value inferior a 2.2×10⁻¹⁶.
+
+**Interpretación**
+
+Un p-value tan pequeño indica que la hipótesis nula de igualdad de
+matrices de covarianza entre las clases “Bajo”, “Medio” y “Alto” es
+rechazada. Es decir, la dispersión conjunta de los predictores varía
+notablemente según el nivel de rendimiento: cada grupo muestra su propio
+patrón de covarianza.
+
+**Conclusión**
+
+Por tanto, el supuesto de homocedasticidad multivariante (igualdad de
+covarianzas) requerido para aplicar LDA de manera estricta no se cumple
+en este dataset.
+
+#### **Ausencia de multicolinealidad**
+
+```{r multicolinealidad, message=FALSE, warning=FALSE}
+library(car)
+vif_values <- vif(model)
+print(vif_values)
+```
+
+**¿Por qué comprobar la Multicolinealidad?**
+
+Porque LDA requiere invertir la matriz de covarianza global. Si dos o
+más predictores están casi perfectamente correlacionados, esa matriz se
+acerca a la singularidad y no puede invertirse correctamente, provocando
+inestabilidades numéricas y coeficientes erráticos dificultando al
+modelo poder aprender correctamente.
+
+**Descripción de los resultados**
+
+Al calcular el GVIF (Generalized VIF) de cada predictor, todos los
+valores ajustados (GVIF\^(1/(2\*Df))) quedan muy cerca de 1.00, desde
+1.0004 hasta 1.0016, sin excepción.
+
+**Interpretación**
+
+Un GVIF tan bajo indica que ninguna variable está fuertemente
+correlacionada con el resto. Es decir, no existe multicolinealidad
+preocupante. Cuando los factores estuvieran duplicando información de
+otros, se verian GVIF mucho mayores (por ejemplo, \> 5 o 10).
+
+**Conclusión**
+
+La ausencia de multicolinealidad significa que el modelo LDA no sufrirá
+inestabilidad numérica ni coeficientes inflados. Este punto favorece los
+buenos resultados en las predicciones del modelo, pues cada predictor
+aporta información propia y no redundante.
+
+### 5.2.2 Modelo LDA
+
+El Análisis Discriminante Lineal (LDA) multiclase es un método
+estadístico que busca proyectar los datos en un espacio de menor
+dimensión donde las clases queden lo más separadas posible mediante
+fronteras lineales. Para ello estudia las **medias** y las
+**covarianzas** de cada categoría (“Bajo”, “Medio”, “Alto”), y construye
+combinaciones lineales de los predictores que maximicen la distancia
+entre grupos mientras minimizan la dispersión interna. El resultado es
+un modelo muy eficiente: solo necesitas resolver sistemas de ecuaciones,
+no iterar millones de veces como en una red neuronal.
+
+Lo he escogido porque:
+
+-   **Interpretabilidad**: podemos ver directamente qué variables
+    empujan más a un alumno hacia “Alto” o a mantenerlo en “Bajo”.
+
+-   **Velocidad**: el entrenamiento es instantáneo, lo que facilita
+    iterar y explicar resultados en clase o ante el profesor.
+
+-   **Rendimiento**: a pesar de que algunos supuesto (normalidad y
+    covarianzas iguales) no se cumplen de forma estricta, LDA me dió un
+    Accuracy cercano al 0.91 y un Kappa por encima de 0.86, muy
+    competitivo frente a modelos más complejos.
+
+En definitiva, LDA multiclase combina simplicidad matemática, rapidez de
+ejecución y suficiente poder predictivo, por lo que sirve como un gran
+modelo para comparar con una red neuronal (MLP) más sofisticada.
+
+```{r LDA, message=FALSE, warning=FALSE}
+# 0) Librerías
+library(caret)
+library(MASS)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(tidyr)
+library(MLmetrics)
+set.seed(123)
+
+# Entrenar LDA multiclase con 5-fold CV
+tc <- trainControl(
+  method          = "cv",
+  number          = 5,
+  classProbs      = TRUE,
+  summaryFunction = multiClassSummary
+)
+fit_lda_cv <- train(
+  Exam_cat ~ .,
+  data      = train_pp,
+  method    = "lda",
+  trControl = tc,
+  metric    = "Accuracy"
+)
+
+# Resultados de CV en tabla limpia
+res_cv <- fit_lda_cv$results
+tabla_cv <- res_cv %>%
+  dplyr::select(
+    Accuracy,
+    Kappa,
+    AUC,
+    logLoss,
+    Mean_F1,
+    Mean_Sensitivity,
+    Mean_Specificity
+  ) %>%
+  mutate(across(everything(), ~ round(.x, 4)))
+
+knitr::kable(
+  tabla_cv,
+  caption = "Resultados 5-Fold CV para LDA Multiclase",
+  col.names = c(
+    "Accuracy", "Kappa", "AUC",
+    "LogLoss", "F1",
+    "Sensibilidad", "Especificidad"
+  )
+)
+
+# Métricas en test
+pred_lda <- predict(fit_lda_cv, newdata = test_pp)
+cm_lda   <- confusionMatrix(pred_lda, test_pp$Exam_cat)
+cat("\n\n--- Métricas en Test ---\n")
+print(cm_lda)
+
+# Partición en espacio discriminante (LD1 vs LD2)
+lda_mod <- fit_lda_cv$finalModel
+test_features <- test_pp %>% dplyr::select(-Exam_cat)
+lda_vals <- predict(lda_mod, newdata = test_features)
+
+plot_df <- as.data.frame(lda_vals$x[, 1:2]) %>%
+  setNames(c("LD1", "LD2")) %>%
+  mutate(
+    Actual    = test_pp$Exam_cat,
+    Predicted = pred_lda
+  )
+
+ggplot(plot_df, aes(x = LD1, y = LD2, color = Predicted, shape = Actual)) +
+  geom_point(alpha = 0.7, size = 2) +
+  labs(
+    title = "Partición LDA Multiclase en Test",
+    x = "Componente Discriminante 1",
+    y = "Componente Discriminante 2"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = c("Bajo"="#FF6347", "Medio"="#FFD700", "Alto"="#32CD32")) +
+  scale_shape_manual(values = c(15, 16, 17))
+
+# Mostrar coeficientes de cada variable
+scalings <- as.data.frame(lda_mod$scaling) %>%
+  rownames_to_column("Variable") %>%
+  pivot_longer(-Variable, names_to = "LD", values_to = "Loading")
+
+ggplot(scalings, aes(x = reorder(Variable, Loading), y = Loading, fill = LD)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  labs(
+    title = "Contribución de cada variable a LD1 y LD2",
+    x = "Variable",
+    y = "Coeficiente (carga)"
+  ) +
+  theme_minimal() 
+
+```
+
+#### Validación Cruzada (5-Fold CV)
+
+**¿Qué es?**\
+Es un procedimiento que divide el conjunto de entrenamiento en cinco
+partes (“folds”). Entrena el modelo con cuatro folds y lo prueba en el
+quinto, rotando hasta que cada fold haya servido una vez como
+validación.
+
+**¿Por qué es útil?**\
+Porque al promediar el desempeño en cinco particiones distintas,
+obtenemos una visión más estable y fiel de la capacidad real del modelo.
+Así nos protegemos contra resultados inflados por una sola división
+afortunada o desafortunada de los datos.
+
+**Accuracy**
+
+**¿Por qué es útil?** Marca la proporción global de predicciones
+correctas, dándonos una visión de qué tan bien clasifica el modelo en
+general.
+
+**Interpretación (0.9112)**: Significa que, en promedio durante las
+cinco particiones, LDA acertó el 91.12 % de las veces, lo cual es
+bastante alto para un problema de tres clases equilibradas.
+
+**Conclusión**: El modelo captura con exactitud la categoría de
+rendimiento de los estudiantes sin depender de una clase mayoritaria.
+
+**Kappa**
+
+**¿Por qué es útil?** Esta metrica la he puesto debido a que fuerza al
+modelo a predecir por encima de lo que se esperaría si clasificara
+aleatoriamente, esto viene perfecto para lo que dijiste en clase de
+clases desbalanceadas de que puede acertar mucho simplemente prediciendo
+siempre la clase mayoritaria, pues el kappa lo penaliza.
+
+**Interpretación (0.8669)**: Un valor cercano a 1 implica un acuerdo muy
+alto entre predicciones y realidad, casi 87 % superior a lo que
+obtendríam
+
+**Conclusión**: LDA no sólo acierta por tener grupos balanceados, sino
+que realmente aprende patrones distintivos de cada clase.
+
+**AUC (Área Bajo la Curva ROC)**
+
+**¿Por qué es útil?** Mide la capacidad global de diferenciar
+correctamente cada clase frente a las demás, independiente del umbral de
+decisión.
+
+**Interpretación (0.9854)**: Con un AUC de 0.9854, las fronteras
+lineales de LDA separan casi perfectamente “Bajo”, “Medio” y “Alto”.
+
+**Conclusión**: El modelo posee una gran capacidad de discriminación,
+dejando muy pocos casos en zonas grises.
+
+**F1 Score (promedio)**
+
+**¿Por qué es útil?** Equilibra precisión y recall (Sensitivity), para
+detectar todos los casos de cada clase y no generar falsos positivos .
+
+**Interpretación (0.9126)**: Un F1 medio de 0.9126 confirma que LDA
+mantiene un balance excelente entre sensibilidad y precisión.
+
+**Conclusión**: El modelo es equilibrado: no sacrifica la detección de
+una clase a costa de dar falsos positivos.
+
+**Sensibilidad y Especificidad (promedio)**
+
+**¿Por qué son útiles?** La sensibilidad indica cuántos verdaderos
+positivos detecta. La especificidad, cuántos verdaderos negativos evita
+etiquetar erróneamente.
+
+-   **Sensitivity** -\> De todos los alumnos que realmente son “x
+    Clase”, el modelo identifica correctamente al 91.1 %.
+
+-   **Specificity** -\> De todos los alumnos que realmente son “x
+    Clase”, el modelo identifica correctamente al 95.5 %
+
+**Interpretación (Sens = 0.9113, Spec = 0.9556)**: LDA identifica
+correctamente el 91.13 % de los casos reales de una clase y descarta
+bien el 95.56 % de los que no pertenecen a ella.
+
+**Conclusión**: El modelo no solo reconoce muy bien cada grupo, sino que
+también evita confundir con mucha eficacia las observaciones de otras
+categorías.
+
+#### Evaluación Final en Test
+
+**Accuracy**
+
+**¿Por qué es útil?** Valida la precisión real en datos completamente
+nuevos.
+
+**Interpretación (0.9176)**: El 91.76 % de los estudiantes de test
+fueron clasificados correctamente, incluso mejor que en CV.
+
+**Conclusión**: LDA generaliza muy bien y no muestra sobreajuste.
+
+**Kappa**
+
+**¿Por qué es útil?** Confirma que la alta Accuracy no se deba al azar.
+
+**Interpretación (0.8764)**: Un Kappa de 0.8764 en test refuerza el
+hallazgo de un acuerdo sólido lejos de la toma de decisiones aleatorias.
+
+**Conclusión**: El modelo sigue siendo confiable y consistente en datos
+sin ver.
+
+**Matriz de confusión**
+
+**¿Por qué es útil?** Visualiza errores específicos entre pares de
+clases y cuantifica sensibilidad/especificidad por grupo.
+
+**Interpretación**:
+
+-   **Medio**: El modelo predijo correctamente a 433 estudiantes que
+    realmente eran de la clase "Medio", equivocandose 4 alumnos como
+    Alto y 4 como Bajo.
+-   **Bajo**: El modelo predijo correctamente a 386 estudiantes que
+    realmente eran de la clase "Bajo", equivocandose 0 alumnos como Alto
+    y 55 como Medio.
+-   **Alto**: El modelo predijo correctamente a 389 estudiantes que
+    realmente eran de la clase "Alto", equivocandose 5 alumnos como Bajo
+    y 47 como Medio.
+
+**Conclusión**: Lo que indica que es muy bueno identificando a los
+estudiantes que son realmente de cada clase, acertando en la gran
+mayoría de los casos. Por lo que esta capturando bien las relaciones
+entre variables.
+
+**Particiones**
+
+**¿Qué muestra cada dimensión?**
+
+-   **LD1 (Eje X)** y **LD2 (Eje Y)** son las dos “vistas” más
+    informativas que LDA calcula para separar las tres categorías. Son
+    combinaciones lineales de nuestras variables originales que
+    maximizan la separación entre “Bajo”, “Medio” y “Alto”. Al ser 3
+    categorías (“Bajo”, “Medio”, “Alto”), el LDA genera 2 dimensiones
+    (LD1 y LD2). Estas dos son suficientes para capturar toda la
+    separación que LDA puede aportar entre tres grupos.
+
+**¿Por qué es útil?**\
+Ver este gráfico nos ayuda a comprobar visualmente si LDA realmente
+coloca cada grupo en su propia “zona” del espacio. Si las nubes están
+bien separadas, significa que las fronteras lineales de LDA funcionan y
+nuestros predictores distinguen claramente los niveles de rendimiento.
+
+**Interpretación**
+
+-   Los puntos en **verde** (predicción “Alto”) y con forma de
+    **cuadrado** (real “Alto”) se concentran hacia la izquierda,
+    mostrando que LDA agrupa correctamente a los estudiantes con mejores
+    notas.
+
+    Los puntos **amarillos** (“Medio”) quedan en el centro, y los
+    **rojos** (“Bajo”) hacia la derecha.
+
+    Si un punto cambia de color o forma (por ejemplo, un triángulo
+    amarillo dentro de la zona roja), es un caso mal clasificado: la
+    predicción no coincide con la etiqueta real.
+
+**Conclusión**\
+La mayoría de los estudiantes quedan dentro de la franja de color que
+corresponde a su forma (su clase real), lo que confirma que LDA crea
+fronteras que separan eficazmente “Bajo”, “Medio” y “Alto”. Solo unos
+pocos puntos “se escapan” de su zona, ejemplificando los errores de
+clasificación que ya vimos en la matriz de confusión.
+
+**Contribución de variables a LD1 y LD2**
+
+**¿Por qué es útil?**\
+Este gráfico nos muestra qué variables influyen más en cada dimensión
+discriminante y por ello comprobar que influye mas en el rendimiento
+academico.
+
+**Interpretación:**
+
+-   **Attendance** y **Hours_Studied** tienen las **mayores cargas en
+    LD1** (barras rojas muy largas), indicando que son los mejores
+    predictores para separar y distinguir las notas de los alumnos.
+
+-   **Access_to_Resources_Low/Medium** y **Parental_Involvement_Low**
+    destacan en **LD2** (barras azules), lo que sugiere que estas
+    variables ayudan a diferenciar a los estudiantes de rendimiento
+    medio de los extremos.
+
+**Conclusión:**\
+Ver estas cargas confirma que LDA se centra sobre todo la asistencia y
+las horas de estudio para crear su primer eje de separación, y usa
+factores de recursos familiares y participación parental para el
+segundo. Esto nos indica que las relaciones descubiertas por LDA
+coinciden con el conocimiento sobre qué impulsa el rendimiento
+académico.
+
+## 5.3 Modelo Red Neuronal Simple (MLP)
+
+**¿Por qué he elegido una Red Neuronal MLP?**\
+Opté por un perceptrón multicapa (MLP) porque, a diferencia de modelos
+lineales, es capaz de capturar relaciones no lineales muy pequeñas entre
+las variables (por ejemplo, cómo la combinación de horas de estudio,
+motivación y calidad del profesorado puede afectar el rendimiento) sin
+tener que especificar a mano interacciones complejas. Además, tras unos
+minutos de entrenamiento, me ofreció un **Accuracy** y un **Kappa** por
+encima del 0.94 en validación cruzada, superando con creces otros
+métodos. Su tiempo de ajuste es razonable y, al usar regularización
+(“decay”), evita el sobreajuste, garantizando que aprenda patrones
+reales y generalizables.
+
+**¿Cómo funciona la MLP?**
+
+1.  **Capas de neuronas:** La red consta de una capa de entrada (todas
+    las variables predictoras), una o dos capas ocultas (con un número
+    ajustable de “nodos” o neuronas) y una capa de salida con tres
+    neuronas (una por cada categoría: Bajo, Medio, Alto).
+
+2.  **Propagación hacia adelante:** Cada neurona suma sus entradas
+    multiplicadas por pesos, aplica una función de activación (sigmoide
+    o similar) y pasa el resultado a la siguiente capa.
+
+3.  **Cálculo del error:** Al final, la salida produce probabilidades
+    para cada clase; comparamos esas probabilidades con la etiqueta real
+    y calculamos un **error** (p. ej. logLoss).
+
+4.  **Retropropagación:** Ese error se “propaga hacia atrás” para
+    ajustar gradualmente los pesos, minimizando la diferencia entre
+    predicciones y realidad.
+
+5.  **Regularización (decay):** Penaliza pesos excesivamente grandes
+    para que la red no memorize ruidos del entrenamiento y mantenga un
+    buen desempeño en datos nuevos.
+
+Debido a que este modelo no necesita supuestos, vamos a comenzar con la
+creación y análisis de resultados del mismo.
+
+```{r MLP, message=FALSE, warning=FALSE}
+# Librerías necesarias
+library(caret)      # train + confusionMatrix + multiClassSummary
+library(nnet)       # red neuronal simple
+library(dplyr)      # manipulaciones
+library(ggplot2)    # gráficas
+library(knitr)      # kable
+
+set.seed(123)
+
+# Definir trainControl para incluir AUC, LogLoss, F1, etc.
+tc_nn <- trainControl(
+  method          = "cv",
+  number          = 5,
+  classProbs      = TRUE,
+  summaryFunction = multiClassSummary,
+  savePredictions = "final"
+)
+
+# Grid de hiperparámetros
+grid <- expand.grid(
+  size  = c(3, 5),     # nodos ocultos
+  decay = c(0.01, 0.1) # regularización
+)
+
+# Entrenar la red neuronal
+set.seed(123)
+fit_nn <- train(
+  Exam_cat ~ .,
+  data      = train_pp,
+  method    = "nnet",
+  trControl = tc_nn,
+  tuneGrid  = grid,
+  trace     = FALSE,
+  maxit     = 300,
+  metric    = "Accuracy"
+)
+
+# Resultados de CV en tabla limpia
+res_cv <- fit_nn$results
+tabla_cv <- res_cv %>%
+  dplyr::select(
+    Accuracy,
+    Kappa,
+    AUC,
+    logLoss,
+    Mean_F1,
+    Mean_Sensitivity,
+    Mean_Specificity
+  ) %>%
+  mutate(across(everything(), ~ round(.x, 4)))
+
+nn <- fit_nn$finalModel
+cat("Neuronas de entrada:", nn$n[1], "\n")
+cat("Neuronas ocultas:  ", nn$n[2], "\n")
+cat("Neuronas de salida:", nn$n[3], "\n")
+
+knitr::kable(
+  tabla_cv,
+  caption = "Resultados 5-Fold CV para LDA Multiclase",
+  col.names = c(
+    "Accuracy", "Kappa", "AUC",
+    "LogLoss", "F1 (prom.)",
+    "Sensibilidad", "Especificidad"
+  )
+)
+
+# Evaluación en test
+pred <- predict(fit_nn, test_pp)
+cm   <- confusionMatrix(pred, test_pp$Exam_cat)
+cat("\n\n--- Métricas en Test ---\n")
+print(cm)
+
+# Heatmap de la matriz de confusión
+df_cm <- as.data.frame(cm$table)
+ggplot(df_cm, aes(Prediction, Reference, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(title = "Heatmap Confusión: Red Neuronal (nnet)",
+       x = "Clase predicha", y = "Clase real") +
+  theme_minimal()
+
+```
+
+------------------------------------------------------------------------
+
+**Validación Cruzada (5-Fold CV)**
+
+**¿Qué es?**\
+Es un procedimiento que divide el conjunto de entrenamiento en cinco
+partes (“folds”). Entrena el modelo con cuatro folds y lo prueba en el
+quinto, rotando hasta que cada fold haya servido una vez como
+validación.
+
+**¿Por qué es útil?**\
+Porque al promediar el desempeño en cinco particiones distintas,
+obtenemos una visión más estable y fiel de la capacidad real del modelo.
+Así nos protegemos contra resultados inflados por una sola división
+afortunada o desafortunada de los datos.
+
+### Resultados en CV para la Red Neuronal
+
+**Neuronas de entrada: 27**\
+
+Esto quiere decir que la red recibe **27 variables predictoras** como
+entrada. Cada una representa una característica del estudiante (como
+horas de estudio, calidad del profesorado, actividad física, etc.). Cada
+una de estas variables alimenta la red para ayudar a predecir el
+resultado.
+
+**Neuronas ocultas: 3**\
+
+Esta es la **capa intermedia** entre la entrada y la salida. Solo tiene
+3 neuronas, lo cual hace que el modelo sea **simple pero eficiente**.
+Estas neuronas combinan y transforman la información de entrada mediante
+funciones matemáticas para encontrar patrones complejos que **relacionan
+las variables con el rendimiento del estudiante**.
+
+**Neuronas de salida: 3**\
+
+Esto refleja que el modelo está haciendo una **clasificación con tres
+categorías posibles**: Bajo, Medio y Alto. Cada neurona de salida da una
+probabilidad de que un estudiante pertenezca a una de esas clases. El
+modelo elegirá la que tenga la probabilidad más alta como predicción
+final.
+
+**Accuracy (0.94)**
+
+¿Po**r qué mirarlo?** Nos dice qué porcentaje de todas las predicciones
+fueron correctas.
+
+**Interpretación:** La red acierta aproximadamente el 94.5–94.7 % de los
+casos en los cinco pliegues, un nivel muy alto para un problema de tres
+clases balanceadas.
+
+**Conclusión:** El modelo aprende patrones sólidos y consistentes, no se
+apoya en rachas de suerte.
+
+**Kappa (0.91)**
+
+**¿Por qué mirarlo?** Ajusta la Accuracy contra las predicciones por
+azar, esencial cuando las clases están balanceadas.
+
+**Interpretación:** Un Kappa alrededor de 0.92 significa que el 92 % del
+acuerdo entre predicciones y etiquetas reales no es casualidad.
+
+**Conclusión:** La red realmente captura la estructura de las tres
+categorías, no simplemente predice al azar.
+
+**AUC (0.98)**
+
+**¿Por qué mirarlo?** Evalúa la habilidad del modelo para ordenar
+muestras correctamente de más probables a menos probables, sin fijar un
+umbral.
+
+**Interpretación:** Con AUC cerca de 0.99, la red separa casi
+perfectamente cada clase frente al resto, lo que revela un poder
+discriminativo extraordinario.
+
+**Conclusión:** Incluso en clases difíciles de diferenciar, la
+probabilidad estimada es muy confiable.
+
+**F1 Score (0.94)**
+
+**¿Por qué mirarlo?** Balancea precisión y recall en una única métrica,
+útil cuando ambos errores importan.
+
+**Interpretación:** F1 alrededor de 0.945 confirma que la red detecta
+bien cada clase sin abusar de falsos positivos.
+
+**Conclusión:** El trade-off entre “capturar todos los casos reales” y
+“no inventarse casos” está muy bien nivelado.
+
+**Sensibilidad y Especificidad (≈ 0.93 – 0.97)**
+
+**¿Por qué mirarlos?**
+
+Es util para comprobar verdaderos negativos y verdaeros positivos.
+
+-   **Sensitivity** -\> De todos los alumnos que realmente son “x
+    Clase”, el modelo identifica correctamente al 94 %.
+
+-   **Specificity** -\> De todos los alumnos que realmente NO son “x
+    Clase”, el modelo identifica correctamente al 97%.
+
+**Interpretación:** Con sensibilidad \> 0.94 y especificidad \> 0.97, la
+red atrapa casi todos los verdaderos “Altos” y apenas comete falsos
+positivos.
+
+**Conclusión:** El modelo es fiable tanto para detectar quienes
+realmente destacan como para no sobredimensionar los éxitos.
+
+### Métricas en Test Final
+
+**Accuracy (0.9531)**
+
+**¿Por qué mirarlo?** Verificar desempeño en datos nunca vistos asegura
+que no hubo sobreajuste.
+
+**Interpretación:** Acierto del 95.31 % en test, superando incluso el
+CV.
+
+**Conclusión:** La red generaliza de forma excelente; los resultados son
+estables.
+
+**Kappa (0.93)**
+
+**¿Por qué mirarlo?** Confirma que la Accuracy alta no es por casualidad
+en un test específico.
+
+**Interpretación:** Un Kappa de 0.93 demuestra un acuerdo muy por encima
+del azar.
+
+**Conclusión:** El rendimiento mantiene un nivel de confianza y
+estabilidad.
+
+**Matriz de Confusión**
+
+**¿Por qué mirarlo?** Permite ver con detalle errores y aciertos de cada
+categoría, guiando ajustes o interpretaciones.
+
+**Interpretación:**
+
+-   **Medio**: El modelo predijo correctamente a 416 estudiantes que
+    realmente eran de la clase "Medio", equivocandose 16 alumnos como
+    Alto y 9 como Bajo.
+-   **Bajo**: El modelo predijo correctamente a 420 estudiantes que
+    realmente eran de la clase "Bajo", equivocandose 0 alumnos como Alto
+    y 21 como Medio.
+-   **Alto**: El modelo predijo correctamente a 424 estudiantes que
+    realmente eran de la clase "Alto", equivocandose 4 alumnos como Bajo
+    y 13 como Medio.
+
+**Conclusión:** Lo que indica que es el mejor identificando a los
+estudiantes que son realmente de cada clase, acertando en la gran
+mayoría de los casos. Por lo que esta capturando bien las relaciones
+entre variables.
+
+## 5.4 Conclusión Comparativa
+
+Se comprobaron otros modelos para comparar:
+
+-   **Random Forest.** Demasiado tiempo de entramiento, metricas malas.
+
+-   **QDA.** Eficiente, buen rendimiento pero peor que el LDA.
+
+-   **Regresion logistica.** A pesar de buenas metricas ya que es bueno
+    en clasificacion no se ajusta con la naturaleza de mi dataset.
+
+-   **Regresion Lineal.** Malas metricas debido mi objetivo a predecir
+    ya que no es de clasificacion.
+
+Pero los mejores fueron **MLP** y **LDA**:
+
+Tras un riguroso preprocesado, validación cruzada y test, **MLP** y
+**LDA** han tenido el mejor rendimiento, pero con diferencias clave:
+
+**Rendimiento global**
+
+**LDA** alcanzó una *Accuracy* de \~0.918 en test y *Kappa* de \~0.876,
+con AUC \~0.985 y F1 medio \~0.913.
+
+**MLP** superó ligeramente esos valores, con *Accuracy* \~0.953 en test,
+*Kappa* \~0.930, AUC \~0.990 y F1 medio \~0.945.
+
+\
+**Ventaja:** MLP, por su capacidad no lineal, captura matices que LDA
+deja en al margen.
+
+**Velocidad y simplicidad**
+
+**LDA** se entrena en segundos sin ajustes complejos de hiperparámetros.
+
+**MLP** requiere búsqueda de tamaño de capa y tasa de decaimiento, y
+lleva en torno a 3min en CV.
+
+\
+**Ventaja:** LDA, ideal para entornos con recursos limitados.
+
+**Interpretabilidad**
+
+**LDA** entrega coeficientes directos que nos dicen exactamente cómo
+cada variable empuja hacia “Alto” o “Bajo”.
+
+**MLP** solo se sabe que tiene pesos entre nodos, es más difícil de
+explicar sin técnicas de interpretación adicionales.\
+**Ventaja:** LDA, claro para comunicar hallazgos a un público no técnico
+(profesorado, directivos).
+
+**Supuestos**
+
+**LDA** asume normalidad y covarianzas iguales; en mi caso, esos
+supuestos se violan ligeramente, pero tuvieron poco impacto.
+
+**MLP** no requiere ninguna suposición.
+
+\
+**Ventaja:** MLP, más flexible ante datos reales con desviaciones de la
+teoría.
+
+**Recomendación**\
+Para mi objetivo (**identificar factores críticos que influyen en
+“Bajo”, “Medio” o “Alto” y el rendimiento de un alumno)** se deberia
+utilizar ambos para analisis:
+
+**LDA** como **herramienta** de **explicación inicial**, para mostrar de
+forma transparente qué variables tienen mayor peso y comprobar
+rápidamente resultados.
+
+**MLP** como **modelo final de producción**, cuando la máxima precisión
+sea lo mas importante, sabiendo que sacrifica un poco de
+interpretabilidad y requiere más recursos de entrenamiento.
+
+# Bibliografía
+
+-   Keita, Z., n.d. *Tutorial de análisis de componentes principales
+    (PCA) en R*. [online] DataCamp. Disponible en:
+    <https://www.datacamp.com/es/tutorial/pca-analysis-r>.
+
+-   Rstudio *Matriz de confusión*. [online] rpubs. Disponible en:
+    <https://rpubs.com/chzelada/275494>.
+
+-   IBM Cognos Analytics *Regresión lineal múltiple*. [online] IBM.
+    Disponible en:
+    <https://www.ibm.com/docs/es/cognos-analytics/11.1.x?topic=tests-multiple-linear-regression>.
+
+-   Abid Ali Awan *Red Neuronal en R*. [online] DataCamp. Disponible en:
+    <https://www.datacamp.com/es/tutorial/neural-network-models-r>.
+
+-   Freddy Hernández, Juan Carlos Correa *Gráficos con R*. [online]
+    fhernanb. Disponible en:
+    <https://fhernanb.github.io/Graficos-con-R/par.html>.
+
+-   Freddy Hernández, Juan Carlos Correa *Pruebas de Homocedasticidad*.
+    [online] fhernanb. Disponible en:
+    <https://fhernanb.github.io/libro_regresion/homo.html>.
+
+-   Taiyun Wei, Viliam Simko *An Introduction to corrplot*. [online]
+    cran. Disponible en:
+    <https://cran.r-project.org/web/packages/corrplot/vignettes/corrplot-intro.html>.
+
+-   IBM SPSS Statistics *Regresión logística multinomial*. [online] IBM.
+    Disponible en:
+    <https://www.ibm.com/docs/es/spss-statistics/saas?topic=regression-multinomial-logistic>.
+
+-   Rstudio *Regresión Logístico Ordinal.* [online] rpubs. Disponible
+    en:
+    [https://rpubs.com/Especializacion/Logistico](https://rpubs.com/Especializacion/LogisticoOrdinal){.uri}.
+
+-   rubenfcasal *aprendizaje_estadistico.* [online] rubenfcasal.
+    Disponible en:
+    <https://rubenfcasal.github.io/aprendizaje_estadistico/bagging-rf-r.html>.
+
+-   Rstudio *Análisis discriminante lineal (LDA) y análisis
+    discriminante cuadrático (QDA).* [online] rpubs. Disponible en:
+    <https://rpubs.com/joaquin_ar/233932>.
+
+-   BMC *NLR, MLP, SVM, and LDA: a comparative analysis on EMG data from
+    people with trans-radial amputation.* [online] jneuroengrehab.
+    Disponible en:
+    <https://jneuroengrehab.biomedcentral.com/articles/10.1186/s12984-017-0290-6>.
+
+-   Rstudio *Multi-Class LDA, Step-by-Step, and An Example.* [online]
+    rpubs. Disponible en: <https://rpubs.com/zhaoxia/1047413>.
+
+-   Apuntes del Profesor.
